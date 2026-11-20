@@ -39,11 +39,6 @@ pub fn run(project: Project, start: Start) -> Result<()> {
     let mut terminal = ratatui::init();
     let _ = execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture);
     print!("\x1b[22;0t"); // push the terminal title so we can restore it
-    // In herdr-core terminals, report a status (OSC 7501) like agents do, so the app labels the
-    // pane with our title instead of the process name. It clears itself when the shell returns.
-    if std::env::var_os("HC_TERMINAL_ID").is_some() {
-        print!("\x1b]7501;app=sidenote:state=idle\x07");
-    }
     let result = app.event_loop(&mut terminal);
     let closed = app.close_editor();
     print!("\x1b[23;0t"); // pop it
