@@ -1,0 +1,4 @@
+# `cargo release patch|minor|major --execute`: bumps the version, commits, tags vX.Y.Z and pushes.
+# The tag triggers .github/workflows/release.yml, which builds binaries, creates the
+# GitHub Release and publishes to crates.io, so don't publish from here.
+publish = false

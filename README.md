@@ -3,6 +3,10 @@
 Scratch notes tied to the repo you're in, stored outside it (like Claude Code sessions).
 Made to sit in a side pane next to your agents, and to let them edit the note with you.
 
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/gaspb/sidenote/releases/latest/download/sidenote-installer.sh | sh
+```
+
 ```
 sidenote               new note (TUI, autosaves)
 sidenote -c            continue the most recent note in this repo
@@ -43,4 +47,13 @@ The project is the main checkout of the git repo, so linked worktrees share note
 
 ## Install
 
-`cargo install --path .`
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/gaspb/sidenote/releases/latest/download/sidenote-installer.sh | sh
+```
+
+Or with Rust: `cargo install sidenote` (or `cargo binstall sidenote` for a prebuilt binary).
+
+## Releasing
+
+`cargo release patch --execute` (or `minor`/`major`). The pushed `vX.Y.Z` tag triggers CI, which builds
+Linux/macOS binaries and the installer (cargo-dist), creates the GitHub Release and publishes to crates.io.
