@@ -2,12 +2,21 @@
 
 <h1 align="center">sidenote</h1>
 
-Scratch notes tied to the repo you're in, stored outside it (like Claude Code sessions).
-Made to sit in a side pane next to your agents, and to let them edit the note with you.
+<p align="center">Scratch notes tied to the repo you're in, stored outside it, like Claude Code sessions.<br>
+Made to sit in a side pane next to your agents, and to let them edit the note with you.</p>
+
+## Install
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/gaspb/sidenote/releases/latest/download/sidenote-installer.sh | sh
 ```
+
+Installs a prebuilt binary for Linux or macOS (x86_64 / arm64) into `~/.local/bin`
+(set `SIDENOTE_INSTALL_DIR` to change it). With Rust: `cargo install sidenote`, or `cargo binstall sidenote`.
+
+Tip: `alias notes=sidenote`.
+
+## Usage
 
 ```
 sidenote               new note (TUI, autosaves)
@@ -22,16 +31,26 @@ sidenote rm <id>       delete a note
 echo hi | sidenote     capture stdin as a new note, no TUI
 ```
 
-Tip: `alias notes=sidenote`.
+The first line of a note is its title. Notes save as you type; empty ones are discarded on quit.
+The terminal title (and the herdr pane title, where herdr allows it) follows the note.
 
-Editor keys: `^O` notes picker · `^T` new note · `^S` save now · `^Q`/`Esc` quit.
-Editing: `^C`/`^X`/`^V` copy, cut, paste (system clipboard) · `^Z` undo · `^Y`/`^⇧Z` redo.
-Line editing like Claude Code / readline: `^A`/`^E` line start/end · `^K` delete to end · `^U` delete to start · `^W` delete word.
-Markdown: headings, emphasis, code, links, quotes and lists are highlighted. Enter continues a list (on an
-empty item it ends it), `Tab`/`⇧Tab` indent, `^Space` or a click on `[ ]` ticks a checkbox.
-Mouse: click to move the cursor, drag to select (copied to the clipboard via OSC 52), wheel to scroll;
-hold Shift to use your terminal's own selection instead. The terminal (and herdr pane) title follows the note.
-The first line is the title. Empty notes are discarded on quit.
+## Editor
+
+| Keys | |
+| --- | --- |
+| `^O` · `^T` · `^S` · `^Q` / `Esc` | notes picker · new note · save now · quit |
+| `^C` · `^X` · `^V` | copy · cut · paste, using the system clipboard |
+| `^Z` · `^Y` / `^⇧Z` | undo · redo |
+| `^A` / `^E` · `^K` · `^U` · `^W` | line start / end · delete to end · delete to start · delete word (as in Claude Code) |
+| `Enter` in a list | next item (same indent, next number, fresh `[ ]`); on an empty item, ends the list |
+| `Tab` / `⇧Tab` | indent / outdent a list item |
+| `^Space`, or click `[ ]` | tick / untick a checkbox |
+
+Markdown is highlighted as you type: headings, **bold**, *italic*, `code`, code blocks, links, quotes,
+lists and checkboxes (ticked items are dimmed). Your terminal's colours are kept.
+
+Mouse: click to move the cursor, drag to select (copied to the clipboard), wheel to scroll.
+Hold Shift to use your terminal's own selection instead.
 
 ## Working with an agent
 
@@ -40,7 +59,7 @@ the editor picks up outside changes every second. With no unsaved typing it relo
 it does a 3-way merge. If you both changed the same lines, your text wins and theirs is saved as a separate
 "Conflicting copy" note, so nothing is lost.
 
-`sidenote --skill` prints a guide for agents (how to find the note, edit it safely, create one).
+`sidenote --skill` prints a guide for agents (how to find the note, edit it safely, create one), and
 `--help` points agents to it. For Claude Code, add this to `~/.claude/CLAUDE.md`:
 
 ```
@@ -53,15 +72,11 @@ it does a 3-way merge. If you both changed the same lines, your text wins and th
 `~/.local/share/notes/projects/<encoded-repo-path>/<id>.md` (override with `$NOTES_HOME`).
 The project is the main checkout of the git repo, so linked worktrees share notes; outside git it's the cwd.
 
-## Install
-
-```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/gaspb/sidenote/releases/latest/download/sidenote-installer.sh | sh
-```
-
-Or with Rust: `cargo install sidenote` (or `cargo binstall sidenote` for a prebuilt binary).
-
 ## Releasing
 
-`cargo release patch --execute` (or `minor`/`major`). The pushed `vX.Y.Z` tag triggers CI, which builds
-Linux/macOS binaries and the installer (cargo-dist), creates the GitHub Release and publishes to crates.io.
+`cargo release patch --execute` (or `minor` / `major`). The pushed `vX.Y.Z` tag triggers CI, which builds
+the Linux/macOS binaries and the installer (cargo-dist), creates the GitHub Release and publishes to crates.io.
+
+## License
+
+MIT
