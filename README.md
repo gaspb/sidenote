@@ -1,4 +1,6 @@
-# sidenote
+<p align="center"><img src="assets/logo.svg" width="96" alt=""></p>
+
+<h1 align="center">sidenote</h1>
 
 Scratch notes tied to the repo you're in, stored outside it (like Claude Code sessions).
 Made to sit in a side pane next to your agents, and to let them edit the note with you.
@@ -23,6 +25,8 @@ echo hi | sidenote     capture stdin as a new note, no TUI
 Tip: `alias notes=sidenote`.
 
 Editor keys: `^O` notes picker · `^T` new note · `^S` save now · `^Q`/`Esc` quit · `^Z`/`^U` undo · `^R` redo.
+Mouse: click to move the cursor, drag to select (copied to the clipboard via OSC 52), wheel to scroll;
+hold Shift to use your terminal's own selection instead. The terminal (and herdr pane) title follows the note.
 The first line is the title. Empty notes are discarded on quit.
 
 ## Working with an agent

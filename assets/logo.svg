@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <title>sidenote</title>
+  <rect width="128" height="128" rx="28" fill="#15181d"/>
+  <!-- the note -->
+  <rect x="22" y="24" width="60" height="80" rx="9" fill="#eceef1"/>
+  <rect x="32" y="38" width="32" height="7" rx="3.5" fill="#15181d"/>
+  <rect x="32" y="54" width="40" height="4" rx="2" fill="#a3a9b3"/>
+  <rect x="32" y="64" width="34" height="4" rx="2" fill="#a3a9b3"/>
+  <rect x="32" y="74" width="38" height="4" rx="2" fill="#a3a9b3"/>
+  <rect x="32" y="84" width="24" height="4" rx="2" fill="#a3a9b3"/>
+  <!-- the side note, pinned in the margin -->
+  <g transform="rotate(7 91 66)">
+    <rect x="72" y="46" width="38" height="40" rx="7" fill="#22d3ee" stroke="#15181d" stroke-width="5"/>
+    <rect x="80" y="57" width="22" height="4" rx="2" fill="#0b4a55"/>
+    <rect x="80" y="66" width="16" height="4" rx="2" fill="#0b4a55"/>
+    <rect x="80" y="75" width="19" height="4" rx="2" fill="#0b4a55"/>
+  </g>
+</svg>
