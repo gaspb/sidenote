@@ -3,20 +3,24 @@ use anyhow::Result;
 use ratatui::DefaultTerminal;
 use ratatui::Frame;
 use ratatui::crossterm::event::{
-    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEvent, KeyEventKind,
-    KeyModifiers,
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::crossterm::execute;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::crossterm::terminal::SetTitle;
+use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph, Wrap};
 use ratatui_textarea::{CursorMove, Input, Key, TextArea, WrapMode};
+use std::io::Write;
 use std::time::{Duration, Instant, SystemTime};
 
 const AUTOSAVE_AFTER: Duration = Duration::from_millis(500);
 const EXTERNAL_CHECK_EVERY: Duration = Duration::from_secs(1);
 const TICK: Duration = Duration::from_millis(250);
+/// Rows per entry in the picker list (title, meta, spacer).
+const ITEM_HEIGHT: u16 = 3;
 
 pub enum Start {
     New,
@@ -32,10 +36,19 @@ pub fn run(project: Project, start: Start) -> Result<()> {
         Start::Pick => app.show_picker()?,
     }
     let mut terminal = ratatui::init();
-    let _ = execute!(std::io::stdout(), EnableBracketedPaste);
+    let _ = execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture);
+    print!("\x1b[22;0t"); // push the terminal title so we can restore it
     let result = app.event_loop(&mut terminal);
     let closed = app.close_editor();
-    let _ = execute!(std::io::stdout(), DisableBracketedPaste);
+    print!("\x1b[23;0t"); // pop it
+    if let Some(mut child) = herdr_title(None) {
+        let _ = child.wait();
+    }
+    let _ = execute!(
+        std::io::stdout(),
+        DisableBracketedPaste,
+        DisableMouseCapture
+    );
     ratatui::restore();
     result.and(closed)
 }
@@ -128,6 +141,12 @@ struct App {
     picker: Picker,
     flash: Option<(String, Instant)>,
     quit: bool,
+    /// Where the text and the picker list were last drawn, for mouse hit-testing.
+    text_rect: Rect,
+    list_rect: Rect,
+    dragging: bool,
+    /// Title last sent to the terminal / herdr.
+    title: String,
 }
 
 impl App {
@@ -144,6 +163,10 @@ impl App {
             },
             flash: None,
             quit: false,
+            text_rect: Rect::default(),
+            list_rect: Rect::default(),
+            dragging: false,
+            title: String::new(),
         }
     }
 
@@ -297,6 +320,7 @@ impl App {
                 match event::read()? {
                     Event::Key(k) if k.kind != KeyEventKind::Release => self.on_key(k)?,
                     Event::Paste(s) => self.on_paste(&s),
+                    Event::Mouse(m) => self.on_mouse(m)?,
                     _ => {}
                 }
             }
@@ -305,7 +329,25 @@ impl App {
         Ok(())
     }
 
+    /// Terminal (and herdr pane) title: the note's saved title, or the repo in the picker.
+    fn update_title(&mut self) {
+        let title = match (&self.mode, &self.editor) {
+            (Mode::Edit, Some(ed)) if !ed.base.trim().is_empty() => store::title_of(&ed.base),
+            (Mode::Edit, _) => "new note".to_string(),
+            (Mode::Pick, _) => format!("notes · {}", self.project.name),
+        };
+        if title == self.title {
+            return;
+        }
+        let _ = execute!(std::io::stdout(), SetTitle(format!("✎ {title}")));
+        if let Some(mut child) = herdr_title(Some(&title)) {
+            std::thread::spawn(move || child.wait());
+        }
+        self.title = title;
+    }
+
     fn tick(&mut self) -> Result<()> {
+        self.update_title();
         if self
             .flash
             .as_ref()
@@ -348,6 +390,87 @@ impl App {
         }
     }
 
+    fn on_mouse(&mut self, m: MouseEvent) -> Result<()> {
+        match self.mode {
+            Mode::Edit => self.on_edit_mouse(m),
+            Mode::Pick => self.on_pick_mouse(m)?,
+        }
+        Ok(())
+    }
+
+    /// Click to place the cursor, drag to select (copied to the clipboard on release), wheel to scroll.
+    fn on_edit_mouse(&mut self, m: MouseEvent) {
+        let area = self.text_rect;
+        let Some(ed) = self.editor.as_mut() else {
+            return;
+        };
+        let jump = |ed: &mut Editor| {
+            let (top, left) = ed.textarea.scroll_offset();
+            let row = m.row.saturating_sub(area.y) + top;
+            let col = m.column.saturating_sub(area.x) + left;
+            let p = ed.textarea.screen_to_data(row as usize, col as usize);
+            ed.textarea
+                .move_cursor(CursorMove::Jump(p.0 as u16, p.1 as u16));
+        };
+        match m.kind {
+            MouseEventKind::Down(MouseButton::Left)
+                if area.contains(Position::new(m.column, m.row)) =>
+            {
+                ed.textarea.cancel_selection();
+                jump(ed);
+                self.dragging = true;
+            }
+            MouseEventKind::Drag(MouseButton::Left) if self.dragging => {
+                if !ed.textarea.is_selecting() {
+                    ed.textarea.start_selection();
+                }
+                jump(ed);
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                self.dragging = false;
+                if let Some(text) = selected_text(&ed.textarea).filter(|t| !t.is_empty()) {
+                    copy_to_clipboard(&text);
+                }
+            }
+            MouseEventKind::ScrollDown => ed.textarea.scroll((3, 0)),
+            MouseEventKind::ScrollUp => ed.textarea.scroll((-3, 0)),
+            _ => {}
+        }
+    }
+
+    /// Click selects a note, clicking the selected one opens it; wheel moves the selection.
+    fn on_pick_mouse(&mut self, m: MouseEvent) -> Result<()> {
+        let p = &mut self.picker;
+        match m.kind {
+            MouseEventKind::Down(MouseButton::Left)
+                if self.list_rect.contains(Position::new(m.column, m.row)) =>
+            {
+                let idx = p.state.offset() + ((m.row - self.list_rect.y) / ITEM_HEIGHT) as usize;
+                if idx >= p.visible().len() {
+                    return Ok(());
+                }
+                if p.state.selected() == Some(idx) {
+                    let id = p.visible()[idx].id.clone();
+                    self.open(&id)?;
+                } else {
+                    p.confirm_delete = false;
+                    p.state.select(Some(idx));
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                p.state
+                    .select(Some(p.state.selected().map_or(0, |i| i + 1)));
+                p.clamp();
+            }
+            MouseEventKind::ScrollUp => {
+                p.state
+                    .select(Some(p.state.selected().unwrap_or(0).saturating_sub(1)));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn on_key(&mut self, k: KeyEvent) -> Result<()> {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         match self.mode {
@@ -358,6 +481,16 @@ impl App {
 
     fn on_edit_key(&mut self, k: KeyEvent, ctrl: bool) -> Result<()> {
         match (k.code, ctrl) {
+            (KeyCode::Esc, _)
+                if self
+                    .editor
+                    .as_ref()
+                    .is_some_and(|e| e.textarea.is_selecting()) =>
+            {
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.textarea.cancel_selection();
+                }
+            }
             (KeyCode::Char('q'), true) | (KeyCode::Esc, _) => self.quit = true,
             (KeyCode::Char('s'), true) => {
                 if let Some(ed) = self.editor.as_mut() {
@@ -382,9 +515,13 @@ impl App {
                         ..input
                     }; // undo
                 }
+                let copies = input.ctrl && matches!(input.key, Key::Char('c') | Key::Char('x'));
                 if ed.textarea.input(input) {
                     ed.dirty = true;
                     ed.last_edit = Instant::now();
+                }
+                if copies && !ed.textarea.yank_text().is_empty() {
+                    copy_to_clipboard(&ed.textarea.yank_text());
                 }
             }
         }
@@ -467,6 +604,7 @@ impl App {
             Mode::Edit => {
                 if let Some(ed) = self.editor.as_ref() {
                     let inner = Block::new().padding(Padding::horizontal(1)).inner(body);
+                    self.text_rect = inner;
                     f.render_widget(&ed.textarea, inner);
                 }
             }
@@ -548,6 +686,7 @@ impl App {
                         .add_modifier(Modifier::BOLD),
                 )
                 .highlight_symbol("▌");
+            self.list_rect = left;
             f.render_stateful_widget(list, left, &mut self.picker.state);
         }
 
@@ -625,4 +764,71 @@ fn new_textarea(content: &str) -> TextArea<'static> {
     ta.set_placeholder_text("Start typing… the first line becomes the title. Saved automatically.");
     ta.set_placeholder_style(Style::new().dark_gray());
     ta
+}
+
+/// The selected text, without consuming the selection (unlike `TextArea::copy`).
+fn selected_text(ta: &TextArea) -> Option<String> {
+    let ((sr, sc), (er, ec)) = ta.selection_range()?;
+    let lines = ta.lines();
+    let chars = |row: usize, from: usize, to: usize| -> String {
+        lines[row]
+            .chars()
+            .skip(from)
+            .take(to.saturating_sub(from))
+            .collect()
+    };
+    if sr == er {
+        return Some(chars(sr, sc, ec));
+    }
+    let mut out = vec![chars(sr, sc, usize::MAX)];
+    out.extend(lines[sr + 1..er].iter().cloned());
+    out.push(chars(er, 0, ec));
+    Some(out.join("\n"))
+}
+
+/// Put text on the system clipboard via OSC 52, which most terminals (and tmux with
+/// `set-clipboard on`) honour, so it works over SSH too.
+fn copy_to_clipboard(text: &str) {
+    let mut out = std::io::stdout();
+    let _ = write!(out, "\x1b]52;c;{}\x07", base64(text.as_bytes()));
+    let _ = out.flush();
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, b)| n | (*b as u32) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ABC[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// Inside herdr, report the pane title (or clear it with `None`). Returns the spawned process.
+fn herdr_title(title: Option<&str>) -> Option<std::process::Child> {
+    if std::env::var("HERDR_ENV").ok()? != "1" {
+        return None;
+    }
+    let pane = std::env::var("HERDR_PANE_ID").ok()?;
+    let mut cmd = std::process::Command::new("herdr");
+    cmd.args(["pane", "report-metadata", "--source", "sidenote"]);
+    match title {
+        Some(t) => cmd.args(["--title", t]),
+        None => cmd.arg("--clear-title"),
+    };
+    cmd.arg(pane)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()
 }
