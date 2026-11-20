@@ -1,3 +1,4 @@
+use crate::markdown::{self, ListPrefix};
 use crate::store::{self, Lock, Note, Project};
 use anyhow::Result;
 use ratatui::DefaultTerminal;
@@ -69,6 +70,69 @@ struct Editor {
 impl Editor {
     fn text(&self) -> String {
         self.textarea.lines().join("\n")
+    }
+
+    fn edited(&mut self) {
+        self.dirty = true;
+        self.last_edit = Instant::now();
+    }
+
+    /// Enter on a list item: start the next item, or end the list if this one is empty.
+    /// None when Enter should behave normally.
+    fn continue_list(&mut self) -> Option<bool> {
+        let (row, col) = (self.textarea.cursor().0, self.textarea.cursor().1);
+        let line = self.textarea.lines()[row].clone();
+        let p = ListPrefix::parse(&line)?;
+        if col < p.len {
+            return None;
+        }
+        if line.chars().skip(p.len).all(char::is_whitespace) {
+            self.textarea.move_cursor(CursorMove::Head);
+            return Some(self.textarea.delete_line_by_end());
+        }
+        self.textarea.insert_newline();
+        self.textarea.insert_str(p.continuation(&line));
+        Some(true)
+    }
+
+    /// Tab / Shift+Tab: indent or outdent the line by two spaces. Tab only acts on list items.
+    fn indent(&mut self, right: bool) -> Option<bool> {
+        let (row, col) = (self.textarea.cursor().0, self.textarea.cursor().1);
+        let line = &self.textarea.lines()[row];
+        if right {
+            ListPrefix::parse(line)?;
+            self.textarea.move_cursor(CursorMove::Head);
+            self.textarea.insert_str("  ");
+            self.textarea
+                .move_cursor(CursorMove::Jump(row as u16, (col + 2) as u16));
+            return Some(true);
+        }
+        let n = line.chars().take(2).take_while(|&c| c == ' ').count();
+        self.textarea.move_cursor(CursorMove::Head);
+        for _ in 0..n {
+            self.textarea.delete_next_char();
+        }
+        self.textarea
+            .move_cursor(CursorMove::Jump(row as u16, col.saturating_sub(n) as u16));
+        Some(n > 0)
+    }
+
+    /// Flip `[ ]` <-> `[x]` on a list item. Returns whether anything changed.
+    fn toggle_checkbox(&mut self, row: usize) -> bool {
+        let Some(p) = ListPrefix::parse(&self.textarea.lines()[row]) else {
+            return false;
+        };
+        let Some(checked) = p.checked else {
+            return false;
+        };
+        let (r, c) = (self.textarea.cursor().0, self.textarea.cursor().1);
+        self.textarea
+            .move_cursor(CursorMove::Jump(row as u16, (p.marker_end + 2) as u16));
+        self.textarea.delete_next_char();
+        self.textarea.insert_char(if checked { ' ' } else { 'x' });
+        self.textarea
+            .move_cursor(CursorMove::Jump(r as u16, c as u16));
+        true
     }
 
     /// Swap in new text, keeping the cursor on the same line if it still exists nearby.
@@ -419,6 +483,13 @@ impl App {
                 ed.textarea.cancel_selection();
                 jump(ed);
                 self.dragging = true;
+                let (row, col) = (ed.textarea.cursor().0, ed.textarea.cursor().1);
+                let on_box = ListPrefix::parse(&ed.textarea.lines()[row]).is_some_and(|p| {
+                    p.checked.is_some() && (p.marker_end + 1..p.marker_end + 4).contains(&col)
+                });
+                if on_box && ed.toggle_checkbox(row) {
+                    ed.edited();
+                }
             }
             MouseEventKind::Drag(MouseButton::Left) if self.dragging => {
                 if !ed.textarea.is_selecting() {
@@ -500,17 +571,12 @@ impl App {
                 self.flash("saved");
             }
             (KeyCode::Char('o'), true) => self.show_picker()?,
-            // Standard editor keys instead of the widget's emacs ones (^V = page down, ^A = line start).
+            // ^V pastes the system clipboard (the widget's own ^V is page down).
             (KeyCode::Char('v'), true) => match read_clipboard() {
                 Some(text) => self.on_paste(&text),
                 None => self
                     .flash("clipboard is empty or unreadable (needs wl-paste, xclip or pbpaste)"),
             },
-            (KeyCode::Char('a'), true) => {
-                if let Some(ed) = self.editor.as_mut() {
-                    ed.textarea.select_all();
-                }
-            }
             (KeyCode::Char('t'), true) => {
                 self.open_new()?;
                 self.flash("new note");
@@ -519,6 +585,21 @@ impl App {
                 let Some(ed) = self.editor.as_mut() else {
                     return Ok(());
                 };
+                // Markdown list helpers and Claude Code style line editing.
+                let special = match (k.code, ctrl) {
+                    (KeyCode::Enter, false) if k.modifiers.is_empty() => ed.continue_list(),
+                    (KeyCode::Tab, false) => ed.indent(true),
+                    (KeyCode::BackTab, _) => ed.indent(false),
+                    (KeyCode::Char(' '), true) => Some(ed.toggle_checkbox(ed.textarea.cursor().0)),
+                    (KeyCode::Char('u'), true) => Some(ed.textarea.delete_line_by_head()),
+                    _ => None,
+                };
+                if let Some(modified) = special {
+                    if modified {
+                        ed.edited();
+                    }
+                    return Ok(());
+                }
                 let mut input = Input::from(k);
                 // ^Z undo, ^Y / ^⇧Z redo (the widget's own keys are ^U / ^R).
                 let remap = match input.key {
@@ -625,6 +706,7 @@ impl App {
                     let inner = Block::new().padding(Padding::horizontal(1)).inner(body);
                     self.text_rect = inner;
                     f.render_widget(&ed.textarea, inner);
+                    markdown::paint(f.buffer_mut(), inner, &ed.textarea);
                 }
             }
             Mode::Pick => self.draw_picker(f, body),

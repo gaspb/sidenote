@@ -24,7 +24,11 @@ echo hi | sidenote     capture stdin as a new note, no TUI
 
 Tip: `alias notes=sidenote`.
 
-Editor keys: `^O` notes picker · `^T` new note · `^S` save now · `^Q`/`Esc` quit · `^Z`/`^U` undo · `^R` redo.
+Editor keys: `^O` notes picker · `^T` new note · `^S` save now · `^Q`/`Esc` quit.
+Editing: `^C`/`^X`/`^V` copy, cut, paste (system clipboard) · `^Z` undo · `^Y`/`^⇧Z` redo.
+Line editing like Claude Code / readline: `^A`/`^E` line start/end · `^K` delete to end · `^U` delete to start · `^W` delete word.
+Markdown: headings, emphasis, code, links, quotes and lists are highlighted. Enter continues a list (on an
+empty item it ends it), `Tab`/`⇧Tab` indent, `^Space` or a click on `[ ]` ticks a checkbox.
 Mouse: click to move the cursor, drag to select (copied to the clipboard via OSC 52), wheel to scroll;
 hold Shift to use your terminal's own selection instead. The terminal (and herdr pane) title follows the note.
 The first line is the title. Empty notes are discarded on quit.

@@ -15,6 +15,7 @@ diffy = "0.5"
 ratatui = "0.30"
 ratatui-textarea = "0.9"
 serde_json = "1.0.154"
+unicode-width = "0.2"
 
 # The profile that 'dist' will build with
 [profile.dist]
