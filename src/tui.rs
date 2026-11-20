@@ -500,6 +500,17 @@ impl App {
                 self.flash("saved");
             }
             (KeyCode::Char('o'), true) => self.show_picker()?,
+            // Standard editor keys instead of the widget's emacs ones (^V = page down, ^A = line start).
+            (KeyCode::Char('v'), true) => match read_clipboard() {
+                Some(text) => self.on_paste(&text),
+                None => self
+                    .flash("clipboard is empty or unreadable (needs wl-paste, xclip or pbpaste)"),
+            },
+            (KeyCode::Char('a'), true) => {
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.textarea.select_all();
+                }
+            }
             (KeyCode::Char('t'), true) => {
                 self.open_new()?;
                 self.flash("new note");
@@ -509,11 +520,19 @@ impl App {
                     return Ok(());
                 };
                 let mut input = Input::from(k);
-                if input.ctrl && input.key == Key::Char('z') {
+                // ^Z undo, ^Y / ^⇧Z redo (the widget's own keys are ^U / ^R).
+                let remap = match input.key {
+                    Key::Char('z') if input.ctrl && !input.shift => Some('u'),
+                    Key::Char('Z' | 'z') if input.ctrl => Some('r'),
+                    Key::Char('y') if input.ctrl => Some('r'),
+                    _ => None,
+                };
+                if let Some(c) = remap {
                     input = Input {
-                        key: Key::Char('u'),
+                        key: Key::Char(c),
+                        shift: false,
                         ..input
-                    }; // undo
+                    };
                 }
                 let copies = input.ctrl && matches!(input.key, Key::Char('c') | Key::Char('x'));
                 if ed.textarea.input(input) {
@@ -786,12 +805,67 @@ fn selected_text(ta: &TextArea) -> Option<String> {
     Some(out.join("\n"))
 }
 
-/// Put text on the system clipboard via OSC 52, which most terminals (and tmux with
-/// `set-clipboard on`) honour, so it works over SSH too.
+/// Put text on the system clipboard: via OSC 52, which most terminals (and tmux with
+/// `set-clipboard on`) honour, even over SSH; and via the local clipboard tool if there is one.
 fn copy_to_clipboard(text: &str) {
     let mut out = std::io::stdout();
     let _ = write!(out, "\x1b]52;c;{}\x07", base64(text.as_bytes()));
     let _ = out.flush();
+    for (cmd, args) in clipboard_tools(true) {
+        let child = std::process::Command::new(cmd)
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        if let Ok(mut child) = child {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            std::thread::spawn(move || child.wait());
+            return;
+        }
+    }
+}
+
+fn read_clipboard() -> Option<String> {
+    clipboard_tools(false).into_iter().find_map(|(cmd, args)| {
+        let out = std::process::Command::new(cmd)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        let text = String::from_utf8(out.stdout).ok()?;
+        (out.status.success() && !text.is_empty()).then_some(text)
+    })
+}
+
+/// Clipboard commands to try, in order, for writing (`copy`) or reading.
+fn clipboard_tools(copy: bool) -> Vec<(&'static str, &'static [&'static str])> {
+    let mut tools: Vec<(&str, &[&str])> = Vec::new();
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        tools.push(if copy {
+            ("wl-copy", &[])
+        } else {
+            ("wl-paste", &["--no-newline"])
+        });
+    }
+    if std::env::var_os("DISPLAY").is_some() {
+        tools.push(if copy {
+            ("xclip", &["-selection", "clipboard"])
+        } else {
+            ("xclip", &["-selection", "clipboard", "-o"])
+        });
+    }
+    if cfg!(target_os = "macos") {
+        tools.push(if copy {
+            ("pbcopy", &[])
+        } else {
+            ("pbpaste", &[])
+        });
+    }
+    tools
 }
 
 fn base64(bytes: &[u8]) -> String {
