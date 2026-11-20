@@ -6,13 +6,23 @@ use clap::{Parser, Subcommand};
 use std::io::{IsTerminal, Read};
 use store::Project;
 
+const SKILL: &str = include_str!("skill.md");
+
 /// Scratch notes tied to the current repo, stored outside it.
 ///
-/// Run `notes` to start a new note, `notes -c` to continue the latest one,
-/// or `notes -r` to pick from this repo's notes. Notes autosave as you type.
+/// Run `sidenote` to start a new note, `sidenote -c` to continue the latest one,
+/// or `sidenote -r` to pick from this repo's notes. Notes autosave as you type.
 #[derive(Parser)]
-#[command(name = "notes", version)]
+#[command(
+    name = "sidenote",
+    version,
+    after_help = "Are you an AI agent? Run `sidenote --skill` to learn how to read and edit the user's notes."
+)]
 struct Cli {
+    /// Print the guide for AI agents working with these notes
+    #[arg(long, exclusive = true)]
+    skill: bool,
+
     /// Continue the most recent note in this repo
     #[arg(short = 'c', long = "continue", conflicts_with = "resume")]
     cont: bool,
@@ -33,10 +43,13 @@ enum Cmd {
         /// List notes for every repo
         #[arg(short, long)]
         all: bool,
+        /// Machine-readable output
+        #[arg(long)]
+        json: bool,
     },
-    /// Print a note to stdout
+    /// Print a note (default: the one open in an editor, else the latest)
     #[command(visible_alias = "cat")]
-    Show { id: String },
+    Show { id: Option<String> },
     /// Delete a note
     Rm {
         id: String,
@@ -44,23 +57,33 @@ enum Cmd {
         #[arg(short, long)]
         force: bool,
     },
-    /// Print the storage directory for this repo (or a note's file path)
-    Path { id: Option<String> },
+    /// Print a note's file path (default: the one open in an editor, else the latest)
+    Path {
+        id: Option<String>,
+        /// Print this repo's notes directory instead
+        #[arg(long, conflicts_with = "id")]
+        dir: bool,
+    },
 }
 
 fn main() {
     if let Err(e) = run(Cli::parse()) {
-        eprintln!("notes: {e:#}");
+        eprintln!("sidenote: {e:#}");
         std::process::exit(1);
     }
 }
 
 fn run(cli: Cli) -> Result<()> {
+    if cli.skill {
+        print!("{SKILL}");
+        return Ok(());
+    }
     let project = Project::current()?;
     match cli.cmd {
-        Some(Cmd::List { all }) => list(&project, all),
+        Some(Cmd::List { all, json: true }) => list_json(&project, all),
+        Some(Cmd::List { all, json: false }) => list(&project, all),
         Some(Cmd::Show { id }) => {
-            print!("{}", project.read(&project.find(&id)?.id)?);
+            print!("{}", project.read(&project.resolve(id.as_deref())?.id)?);
             Ok(())
         }
         Some(Cmd::Rm { id, force }) => {
@@ -75,15 +98,16 @@ fn run(cli: Cli) -> Result<()> {
             println!("deleted {}  {}", note.id, note.title);
             Ok(())
         }
-        Some(Cmd::Path { id }) => {
-            match id {
-                Some(id) => println!("{}", project.find(&id)?.path.display()),
-                None => println!("{}", project.dir.display()),
-            }
+        Some(Cmd::Path { dir: true, .. }) => {
+            println!("{}", project.dir.display());
+            Ok(())
+        }
+        Some(Cmd::Path { id, .. }) => {
+            println!("{}", project.resolve(id.as_deref())?.path.display());
             Ok(())
         }
         None => {
-            // `echo "..." | notes` captures stdin into a new note without opening the editor.
+            // `echo "..." | sidenote` captures stdin into a new note without opening the editor.
             if !cli.cont && cli.resume.is_none() && !std::io::stdin().is_terminal() {
                 let mut buf = String::new();
                 std::io::stdin().read_to_string(&mut buf)?;
@@ -142,7 +166,7 @@ fn list(current: &Project, all: bool) -> Result<()> {
             )
         );
         if notes.is_empty() {
-            println!("  {}", c("2", "no notes yet — run `notes` to start one"));
+            println!("  {}", c("2", "no notes yet — run `sidenote` to start one"));
         }
         for n in notes {
             let open = if n.open_pid.is_some() {
@@ -161,5 +185,33 @@ fn list(current: &Project, all: bool) -> Result<()> {
     if !printed {
         println!("no notes anywhere yet");
     }
+    Ok(())
+}
+
+fn list_json(current: &Project, all: bool) -> Result<()> {
+    let projects = if all {
+        Project::all()?
+    } else {
+        vec![Project::for_root(current.root.clone())]
+    };
+    let mut out = Vec::new();
+    for p in projects {
+        for n in p.list()? {
+            let modified = n
+                .modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            out.push(serde_json::json!({
+                "id": n.id,
+                "title": n.title,
+                "path": n.path,
+                "modified": modified,
+                "open": n.open_pid.is_some(),
+                "repo": p.root,
+            }));
+        }
+    }
+    println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
 }

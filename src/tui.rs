@@ -47,6 +47,8 @@ struct Editor {
     last_edit: Instant,
     last_saved: Option<SystemTime>,
     disk_mtime: Option<SystemTime>,
+    /// Text as last seen on disk: the common ancestor when merging outside edits.
+    base: String,
     last_external_check: Instant,
     _lock: Lock,
 }
@@ -55,6 +57,28 @@ impl Editor {
     fn text(&self) -> String {
         self.textarea.lines().join("\n")
     }
+
+    /// Swap in new text, keeping the cursor on the same line if it still exists nearby.
+    fn replace_text(&mut self, text: &str) {
+        let (row, col) = (self.textarea.cursor().0, self.textarea.cursor().1);
+        let current = self.textarea.lines().get(row).cloned();
+        let mut textarea = new_textarea(text);
+        let lines = textarea.lines();
+        let target = current
+            .filter(|l| !l.trim().is_empty())
+            .and_then(|cur| {
+                (0..lines.len())
+                    .filter(|&i| lines[i] == cur)
+                    .min_by_key(|&i| i.abs_diff(row))
+            })
+            .unwrap_or(row);
+        textarea.move_cursor(CursorMove::Jump(target as u16, col as u16));
+        self.textarea = textarea;
+    }
+}
+
+fn normalize(s: &str) -> String {
+    s.lines().collect::<Vec<_>>().join("\n")
 }
 
 #[derive(PartialEq)]
@@ -141,7 +165,7 @@ impl App {
         }
         if let Some(pid) = self.project.open_pid(id) {
             self.flash(format!(
-                "open in another pane too (pid {pid}), last save wins"
+                "open in another pane too (pid {pid}), edits are merged"
             ));
         }
         self.load(id.to_string())
@@ -162,6 +186,7 @@ impl App {
             last_edit: Instant::now(),
             last_saved: disk_mtime,
             disk_mtime,
+            base: normalize(&content),
             last_external_check: Instant::now(),
             _lock: lock,
         });
@@ -170,6 +195,8 @@ impl App {
     }
 
     fn save(&mut self) -> Result<()> {
+        // Fold in anything written by someone else first, so we never clobber it.
+        self.sync_external()?;
         let Some(ed) = self.editor.as_mut() else {
             return Ok(());
         };
@@ -182,7 +209,55 @@ impl App {
         let mtime = self.project.write(&ed.id, &text)?;
         ed.disk_mtime = Some(mtime);
         ed.last_saved = Some(mtime);
+        ed.base = text;
         ed.dirty = false;
+        Ok(())
+    }
+
+    /// Bring in changes another process (an agent, another pane) wrote to the file.
+    /// Clean buffer: reload. Unsaved edits: 3-way merge against the last disk version.
+    /// On conflict our text wins and theirs is kept as a separate note.
+    fn sync_external(&mut self) -> Result<()> {
+        let Some(ed) = self.editor.as_mut() else {
+            return Ok(());
+        };
+        let now = self.project.mtime(&ed.id);
+        if now.is_none() || now == ed.disk_mtime {
+            return Ok(());
+        }
+        let theirs = normalize(&self.project.read(&ed.id)?);
+        ed.disk_mtime = now;
+        if theirs == ed.base {
+            return Ok(());
+        }
+        let ours = ed.text();
+        let msg = if !ed.dirty || ours == ed.base {
+            ed.replace_text(&theirs);
+            ed.dirty = false;
+            ed.last_saved = now;
+            "updated from another pane".to_string()
+        } else {
+            match diffy::merge(
+                &format!("{}\n", ed.base),
+                &format!("{ours}\n"),
+                &format!("{theirs}\n"),
+            ) {
+                Ok(merged) => {
+                    ed.replace_text(merged.strip_suffix('\n').unwrap_or(&merged));
+                    "merged changes from another pane".to_string()
+                }
+                Err(_) => {
+                    let id = self.project.new_id();
+                    self.project.write(
+                        &id,
+                        &format!("# Conflicting copy of note {}\n\n{theirs}", ed.id),
+                    )?;
+                    format!("conflict: kept yours, theirs saved as note {id}")
+                }
+            }
+        };
+        ed.base = theirs;
+        self.flash(msg);
         Ok(())
     }
 
@@ -247,20 +322,9 @@ impl App {
             }
             return Ok(());
         }
-        // Pick up edits made elsewhere (another pane) while we have nothing unsaved.
-        if !ed.dirty && ed.last_external_check.elapsed() >= EXTERNAL_CHECK_EVERY {
+        if ed.last_external_check.elapsed() >= EXTERNAL_CHECK_EVERY {
             ed.last_external_check = Instant::now();
-            let now = self.project.mtime(&ed.id);
-            if now.is_some() && now != ed.disk_mtime {
-                let content = self.project.read(&ed.id)?;
-                let (row, col) = (ed.textarea.cursor().0, ed.textarea.cursor().1);
-                ed.textarea = new_textarea(&content);
-                ed.textarea
-                    .move_cursor(CursorMove::Jump(row as u16, col as u16));
-                ed.disk_mtime = now;
-                ed.last_saved = now;
-                self.flash("reloaded — changed in another pane");
-            }
+            self.sync_external()?;
         }
         Ok(())
     }
@@ -503,7 +567,7 @@ impl App {
     fn draw_status(&self, f: &mut Frame, area: Rect) {
         let dim = Style::new().dark_gray();
         let mut left = vec![
-            Span::styled(" notes ", Style::new().black().on_cyan().bold()),
+            Span::styled(" sidenote ", Style::new().black().on_cyan().bold()),
             Span::raw(" "),
         ];
         left.push(Span::styled(self.project.name.clone(), Style::new().bold()));

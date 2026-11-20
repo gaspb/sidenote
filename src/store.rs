@@ -207,6 +207,21 @@ impl Project {
         }
     }
 
+    /// The note a bare `show`/`path` means: an explicit id, else the most recent note
+    /// open in an editor, else the most recent note.
+    pub fn resolve(&self, id: Option<&str>) -> Result<Note> {
+        if let Some(id) = id {
+            return self.find(id);
+        }
+        let notes = self.list()?;
+        notes
+            .iter()
+            .find(|n| n.open_pid.is_some())
+            .or(notes.first())
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no notes yet in {}", self.name))
+    }
+
     pub fn new_id(&self) -> String {
         loop {
             let id = random_id();
