@@ -8,11 +8,13 @@ Made to sit in a side pane next to your agents, and to let them edit the note wi
 ## Install
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/gaspb/sidenote/releases/latest/download/sidenote-installer.sh | sh
+curl -fsSL https://gbsn.dev/sidenote | sh
 ```
 
 Installs a prebuilt binary for Linux or macOS (x86_64 / arm64) into `~/.local/bin`
-(set `SIDENOTE_INSTALL_DIR` to change it). With Rust: `cargo install sidenote`, or `cargo binstall sidenote`.
+(set `SIDENOTE_INSTALL_DIR` to change it). The URL redirects to the installer attached to the
+[latest release](https://github.com/gaspb/sidenote/releases/latest/download/sidenote-installer.sh).
+With Rust: `cargo install sidenote`, or `cargo binstall sidenote`.
 
 Tip: `alias notes=sidenote`.
 
