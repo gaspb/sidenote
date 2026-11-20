@@ -293,7 +293,15 @@ impl Drop for Lock {
 
 fn pid_alive(pid: u32) -> bool {
     let proc = Path::new("/proc");
-    !proc.exists() || proc.join(pid.to_string()).exists()
+    if proc.exists() {
+        return proc.join(pid.to_string()).exists();
+    }
+    // No procfs (macOS, BSD): `kill -0` probes the process without signalling it.
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 fn random_id() -> String {
