@@ -10,18 +10,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const ROOT_FILE: &str = ".root";
 const ID_ALPHABET: &[u8] = b"0123456789abcdefghjkmnpqrstvwxyz";
 
-/// Base directory for all notes: $NOTES_HOME, else $XDG_DATA_HOME/notes, else ~/.local/share/notes.
+/// Base directory for all notes: $SIDENOTE_HOME, else $XDG_DATA_HOME/sidenote, else ~/.local/share/sidenote.
 pub fn data_home() -> PathBuf {
-    if let Some(p) = std::env::var_os("NOTES_HOME") {
+    if let Some(p) = std::env::var_os("SIDENOTE_HOME") {
         return PathBuf::from(p);
     }
-    if let Some(p) = std::env::var_os("XDG_DATA_HOME") {
-        return PathBuf::from(p).join("notes");
-    }
-    let home = std::env::var_os("HOME")
+    let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    home.join(".local/share/notes")
+        .unwrap_or_else(|| {
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            home.join(".local/share")
+        });
+    base.join("sidenote")
 }
 
 fn git(cwd: &Path, args: &[&str]) -> Option<PathBuf> {

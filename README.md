@@ -71,7 +71,7 @@ it does a 3-way merge. If you both changed the same lines, your text wins and th
 
 ## Storage
 
-`~/.local/share/notes/projects/<encoded-repo-path>/<id>.md` (override with `$NOTES_HOME`).
+`~/.local/share/sidenote/projects/<encoded-repo-path>/<id>.md` (override with `$SIDENOTE_HOME`).
 The project is the main checkout of the git repo, so linked worktrees share notes; outside git it's the cwd.
 
 ## Releasing
