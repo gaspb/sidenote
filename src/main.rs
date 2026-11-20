@@ -1,9 +1,10 @@
 mod markdown;
+mod setup;
 mod store;
 mod tui;
 
 use anyhow::{Result, bail};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::io::{IsTerminal, Read};
 use store::Project;
 
@@ -58,6 +59,8 @@ enum Cmd {
         #[arg(short, long)]
         force: bool,
     },
+    /// Set up an integration: `herdr` gives sidenote its own name and icon in the herdr app
+    Setup { target: Integration },
     /// Print a note's file path (default: the one open in an editor, else the latest)
     Path {
         id: Option<String>,
@@ -65,6 +68,11 @@ enum Cmd {
         #[arg(long, conflicts_with = "id")]
         dir: bool,
     },
+}
+
+#[derive(Clone, ValueEnum)]
+enum Integration {
+    Herdr,
 }
 
 fn main() {
@@ -81,6 +89,9 @@ fn run(cli: Cli) -> Result<()> {
     }
     let project = Project::current()?;
     match cli.cmd {
+        Some(Cmd::Setup {
+            target: Integration::Herdr,
+        }) => setup::herdr(),
         Some(Cmd::List { all, json: true }) => list_json(&project, all),
         Some(Cmd::List { all, json: false }) => list(&project, all),
         Some(Cmd::Show { id }) => {

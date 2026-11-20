@@ -30,6 +30,7 @@ sidenote ls --json     same, machine-readable
 sidenote show [<id>]   print a note (default: the one open in an editor, else the latest)
 sidenote path [<id>]   a note's file path (same default); --dir for the repo's notes directory
 sidenote rm <id>       delete a note
+sidenote setup herdr   give sidenote its name and icon in the herdr app
 echo hi | sidenote     capture stdin as a new note, no TUI
 ```
 
@@ -71,15 +72,14 @@ it does a 3-way merge. If you both changed the same lines, your text wins and th
 
 ## herdr
 
-In the [herdr](https://herdr.dev) app, give sidenote its own name and icon: copy
-[`assets/herdr-icon.svg`](assets/herdr-icon.svg) to `~/.config/herdr-app/my-icons/sidenote.svg` and add to
-`~/.config/herdr-app/programs.json`:
+In the [herdr](https://herdr.dev) app, run once:
 
-```json
-{ "programs": {
-    "sidenote": { "name": "Sidenote", "icon": "my-icons/sidenote.svg", "tint": true,
-                  "tile": "#0e7490", "color": "#ffffff", "match": ["notes"] } } }
+```sh
+sidenote setup herdr
 ```
+
+It adds a `sidenote` entry (name, [icon](assets/herdr-icon.svg), tile colour) to `~/.config/herdr-app/programs.json`,
+keeping the rest of that file, so sidenote panes show as Sidenote with their own icon. herdr applies it live.
 
 ## Storage
 
