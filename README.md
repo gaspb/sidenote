@@ -69,6 +69,18 @@ it does a 3-way merge. If you both changed the same lines, your text wins and th
   "the note" or their notes, run `sidenote --skill` first and follow it.
 ```
 
+## herdr
+
+In the [herdr](https://herdr.dev) app, give sidenote its own name and icon: copy
+[`assets/herdr-icon.svg`](assets/herdr-icon.svg) to `~/.config/herdr-app/my-icons/sidenote.svg` and add to
+`~/.config/herdr-app/programs.json`:
+
+```json
+{ "programs": {
+    "sidenote": { "name": "Sidenote", "icon": "my-icons/sidenote.svg", "tint": true,
+                  "tile": "#0e7490", "color": "#ffffff", "match": ["notes"] } } }
+```
+
 ## Storage
 
 `~/.local/share/sidenote/projects/<encoded-repo-path>/<id>.md` (override with `$SIDENOTE_HOME`).
