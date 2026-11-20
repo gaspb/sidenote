@@ -403,7 +403,7 @@ impl App {
         if title == self.title {
             return;
         }
-        let _ = execute!(std::io::stdout(), SetTitle(format!("✎ {title}")));
+        let _ = execute!(std::io::stdout(), SetTitle(&title));
         if let Some(mut child) = herdr_title(Some(&title)) {
             std::thread::spawn(move || child.wait());
         }
