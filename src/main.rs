@@ -61,6 +61,15 @@ enum Cmd {
     },
     /// Set up an integration: `herdr` gives sidenote its own name and icon in the herdr app
     Setup { target: Integration },
+    /// Tick or untick the checkbox on a line of a note (as clicking it in the editor would)
+    Check {
+        id: String,
+        /// Line number, from 1
+        line: usize,
+        /// The line's text as you last saw it; if the note changed, the box is found by it
+        #[arg(long, allow_hyphen_values = true)]
+        expect: Option<String>,
+    },
     /// Print a note's file path (default: the one open in an editor, else the latest)
     Path {
         id: Option<String>,
@@ -108,6 +117,15 @@ fn run(cli: Cli) -> Result<()> {
             }
             project.delete(&note.id)?;
             println!("deleted {}  {}", note.id, note.title);
+            Ok(())
+        }
+        Some(Cmd::Check { id, line, expect }) => {
+            let note = project.find(&id)?;
+            let text = project.read(&note.id)?;
+            let (new, checked) = markdown::toggle_checkbox(&text, line, expect.as_deref())
+                .map_err(|e| anyhow::anyhow!("{}: {e}", note.id))?;
+            project.write(&note.id, &new)?;
+            println!("{}", if checked { "checked" } else { "unchecked" });
             Ok(())
         }
         Some(Cmd::Path { dir: true, .. }) => {

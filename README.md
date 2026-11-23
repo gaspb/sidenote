@@ -30,6 +30,7 @@ sidenote ls --json     same, machine-readable
 sidenote show [<id>]   print a note (default: the one open in an editor, else the latest)
 sidenote path [<id>]   a note's file path (same default); --dir for the repo's notes directory
 sidenote rm <id>       delete a note
+sidenote check <id> <line>  tick / untick the checkbox on that line (--expect <text>: find it by its text if the note moved)
 sidenote setup herdr   give sidenote its name and icon in the herdr app
 echo hi | sidenote     capture stdin as a new note, no TUI
 ```

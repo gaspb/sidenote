@@ -285,9 +285,75 @@ impl ListPrefix {
     }
 }
 
+/// Ticks or unticks the checkbox on `line` (1-based) of `text`, outside code blocks. With
+/// `expect`, the line must still read that, or be the only checkbox line that does (the note may
+/// have changed since the caller looked). Returns the new text and whether the box is now ticked.
+pub fn toggle_checkbox(
+    text: &str,
+    line: usize,
+    expect: Option<&str>,
+) -> Result<(String, bool), String> {
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    let fences = fence_state(&lines);
+    let is_box = |i: usize, l: &str| {
+        fences[i] == Fence::None && ListPrefix::parse(l).is_some_and(|p| p.checked.is_some())
+    };
+    let at = line
+        .checked_sub(1)
+        .filter(|&i| i < lines.len() && is_box(i, &lines[i]));
+    let target = match expect {
+        Some(e) if at.is_none_or(|i| lines[i] != e) => {
+            let same: Vec<usize> = (0..lines.len())
+                .filter(|&i| lines[i] == e && is_box(i, &lines[i]))
+                .collect();
+            match same.as_slice() {
+                [only] => *only,
+                [] => return Err("that checkbox is no longer in the note".into()),
+                _ => return Err("the note changed and that checkbox is ambiguous now".into()),
+            }
+        }
+        _ => at.ok_or_else(|| format!("line {line} has no checkbox"))?,
+    };
+    let p = ListPrefix::parse(&lines[target]).unwrap();
+    let checked = p.checked.unwrap();
+    let mut chars: Vec<char> = lines[target].chars().collect();
+    chars[p.marker_end + 2] = if checked { ' ' } else { 'x' };
+    lines[target] = chars.into_iter().collect();
+    let mut out = lines.join("\n");
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    Ok((out, !checked))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toggles_checkboxes_by_line_or_text() {
+        let text = "# t\n- [ ] a\n```\n- [ ] code\n```\n  1. [X] b\n";
+        assert_eq!(
+            toggle_checkbox(text, 2, None).unwrap(),
+            (text.replace("- [ ] a", "- [x] a"), true)
+        );
+        assert_eq!(
+            toggle_checkbox(text, 6, None).unwrap().0,
+            text.replace("[X] b", "[ ] b")
+        );
+        assert!(
+            toggle_checkbox(text, 4, None).is_err(),
+            "inside a code block"
+        );
+        assert!(toggle_checkbox(text, 1, None).is_err(), "not a list item");
+        let moved = format!("new line\n{text}");
+        assert!(toggle_checkbox(&moved, 2, Some("- [ ] a")).unwrap().1);
+        assert!(toggle_checkbox(&moved, 2, Some("- [ ] gone")).is_err());
+        assert!(
+            toggle_checkbox("- [ ] a\n- [ ] a\nx\n", 3, Some("- [ ] a")).is_err(),
+            "ambiguous"
+        );
+    }
 
     #[test]
     fn list_prefixes() {
