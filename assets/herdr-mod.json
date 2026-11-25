@@ -1,0 +1,9 @@
+{
+  "place": "none",
+  "title": "sidenote",
+  "palette": [
+    { "title": "Note: continue the latest", "command": "terminal.open", "args": { "argv": ["sidenote", "-c"], "place": "right", "name": "note" }, "words": "sidenote notes scratch" },
+    { "title": "Note: new", "command": "terminal.open", "args": { "argv": ["sidenote"], "place": "right", "name": "note" }, "words": "sidenote notes scratch" },
+    { "title": "Note: pick one", "command": "terminal.open", "args": { "argv": ["sidenote", "-r"], "place": "right", "name": "notes" }, "words": "sidenote notes scratch" }
+  ]
+}

@@ -1,4 +1,5 @@
-//! `sidenote setup herdr`: give sidenote its own name and icon in the herdr app.
+//! `sidenote setup herdr`: give sidenote its own name and icon in the herdr app, and its command
+//! palette entries (Note: continue the latest, new, pick one).
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -7,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 const HERDR_ICON: &str = include_str!("../assets/herdr-icon.svg");
 const ICON_PATH: &str = "my-icons/sidenote.svg";
+const MOD_JSON: &str = include_str!("../assets/herdr-mod.json");
+const MARKER: &str = ".installed-by";
 
 fn herdr_config_dir() -> PathBuf {
     let base = std::env::var_os("XDG_CONFIG_HOME")
@@ -87,6 +90,44 @@ pub fn herdr() -> Result<()> {
     if icon_changed && !entry_added {
         println!("(the existing \"sidenote\" entry in programs.json was left as is)");
     }
+    palette(&dir.join("mods/sidenote"))
+}
+
+/// The palette entries, as a mod herdr loads live. A folder someone linked or made is left alone
+/// (a copy from herdr-mods' install.sh is replaced).
+fn palette(mod_dir: &Path) -> Result<()> {
+    let stamp = format!("sidenote {}", env!("CARGO_PKG_VERSION"));
+    if fs::symlink_metadata(mod_dir).is_ok_and(|m| m.file_type().is_symlink()) {
+        if mod_dir.exists() {
+            println!(
+                "palette entries: {} is a link; left as is",
+                mod_dir.display()
+            );
+            return Ok(());
+        }
+        fs::remove_file(mod_dir)?;
+    }
+    if mod_dir.exists() {
+        let marker = fs::read_to_string(mod_dir.join(MARKER)).unwrap_or_default();
+        if !marker.starts_with("sidenote") && !mod_dir.join(".herdr-mods").exists() {
+            println!(
+                "palette entries: {} wasn't installed by sidenote; left as is",
+                mod_dir.display()
+            );
+            return Ok(());
+        }
+        if marker == stamp
+            && fs::read_to_string(mod_dir.join("mod.json")).ok().as_deref() == Some(MOD_JSON)
+        {
+            println!("palette entries are up to date");
+            return Ok(());
+        }
+    }
+    fs::create_dir_all(mod_dir)?;
+    write_atomic(&mod_dir.join("mod.json"), MOD_JSON)?;
+    write_atomic(&mod_dir.join(MARKER), &stamp)?;
+    let _ = fs::remove_file(mod_dir.join(".herdr-mods"));
+    println!("added the palette entries: Note: continue the latest, Note: new, Note: pick one");
     Ok(())
 }
 
@@ -94,5 +135,27 @@ fn write_atomic(path: &Path, content: &str) -> Result<()> {
     let tmp = path.with_extension("sidenote-tmp");
     fs::write(&tmp, content).with_context(|| format!("cannot write {}", tmp.display()))?;
     fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// `sidenote update`: the installer's updater, or cargo for a cargo install.
+pub fn update() -> Result<()> {
+    let exe = std::env::current_exe().context("cannot tell where sidenote is")?;
+    let updater = exe.with_file_name("sidenote-update");
+    let status = if updater.is_file() {
+        std::process::Command::new(&updater).status()?
+    } else if exe.components().any(|c| c.as_os_str() == ".cargo") {
+        println!("cargo install --locked --force sidenote");
+        std::process::Command::new("cargo")
+            .args(["install", "--locked", "--force", "sidenote"])
+            .status()?
+    } else {
+        bail!(
+            "sidenote wasn't installed by its installer or cargo; reinstall with:\n  curl -fsSL https://gbsn.dev/sidenote | sh"
+        );
+    };
+    if !status.success() {
+        bail!("the update failed");
+    }
     Ok(())
 }

@@ -59,8 +59,10 @@ enum Cmd {
         #[arg(short, long)]
         force: bool,
     },
-    /// Set up an integration: `herdr` gives sidenote its own name and icon in the herdr app
+    /// Set up an integration: `herdr` gives sidenote its name, icon and palette entries in the herdr app
     Setup { target: Integration },
+    /// Update sidenote to the latest release
+    Update,
     /// Print a note's file path (default: the one open in an editor, else the latest)
     Path {
         id: Option<String>,
@@ -87,11 +89,15 @@ fn run(cli: Cli) -> Result<()> {
         print!("{SKILL}");
         return Ok(());
     }
+    if let Some(Cmd::Update) = cli.cmd {
+        return setup::update();
+    }
     let project = Project::current()?;
     match cli.cmd {
         Some(Cmd::Setup {
             target: Integration::Herdr,
         }) => setup::herdr(),
+        Some(Cmd::Update) => setup::update(),
         Some(Cmd::List { all, json: true }) => list_json(&project, all),
         Some(Cmd::List { all, json: false }) => list(&project, all),
         Some(Cmd::Show { id }) => {
