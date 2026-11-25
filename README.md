@@ -14,7 +14,7 @@ curl -fsSL https://gbsn.dev/sidenote | sh
 Installs a prebuilt binary for Linux or macOS (x86_64 / arm64) into `~/.local/bin`
 (set `SIDENOTE_INSTALL_DIR` to change it). The URL redirects to the installer attached to the
 [latest release](https://github.com/gaspb/sidenote/releases/latest/download/sidenote-installer.sh).
-With Rust: `cargo install sidenote`, or `cargo binstall sidenote`.
+With Rust: `cargo install sidenote`, or `cargo binstall sidenote`. `sidenote update` updates it later.
 
 Tip: `alias notes=sidenote`.
 
@@ -30,7 +30,8 @@ sidenote ls --json     same, machine-readable
 sidenote show [<id>]   print a note (default: the one open in an editor, else the latest)
 sidenote path [<id>]   a note's file path (same default); --dir for the repo's notes directory
 sidenote rm <id>       delete a note
-sidenote setup herdr   give sidenote its name and icon in the herdr app
+sidenote setup herdr   give sidenote its name, icon and palette entries in the herdr app
+sidenote update        update to the latest release
 echo hi | sidenote     capture stdin as a new note, no TUI
 ```
 
@@ -79,7 +80,9 @@ sidenote setup herdr
 ```
 
 It adds a `sidenote` entry (name, [icon](assets/herdr-icon.svg), tile colour) to `~/.config/herdr-app/programs.json`,
-keeping the rest of that file, so sidenote panes show as Sidenote with their own icon. herdr applies it live.
+keeping the rest of that file, so sidenote panes show as Sidenote with their own icon. It also adds command palette
+entries (**Note: continue the latest**, **Note: new**, **Note: pick one**), each opening sidenote in a split in the
+focused pane's folder ([mod](assets/herdr-mod.json)). herdr applies both live; run it again after an update.
 
 ## Storage
 
